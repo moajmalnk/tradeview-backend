@@ -1,0 +1,6 @@
+.env
+.DS_Store
+*.log
+.phpunit.result.cache
+/storage/logs/*
+!/storage/logs/.gitkeep
