@@ -16,7 +16,7 @@ final class AccountRepository extends BaseRepository
         $stmt->execute([$userId]);
         $rows = $stmt->fetchAll();
 
-        return array_map([$this, 'map'], $rows);
+        return $this->withSyncActivity($userId, array_map([$this, 'map'], $rows));
     }
 
     public function findForUser(string $userId, string $id): ?array
@@ -27,7 +27,11 @@ final class AccountRepository extends BaseRepository
         $stmt->execute([$id, $userId]);
         $row = $stmt->fetch();
 
-        return $row ? $this->map($row) : null;
+        if (!$row) {
+            return null;
+        }
+
+        return $this->withSyncActivity($userId, [$this->map($row)])[0];
     }
 
     public function create(string $userId, array $data): array
@@ -97,6 +101,102 @@ final class AccountRepository extends BaseRepository
         $stmt->execute([$id, $userId]);
 
         return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Mark live accounts as disconnected when last_seen_at is older than $staleSeconds.
+     *
+     * @return list<array<string, mixed>> Newly stale accounts
+     */
+    public function markStaleConnections(string $userId, int $staleSeconds = 120): array
+    {
+        $stmt = $this->db()->prepare(
+            'SELECT * FROM trading_accounts
+             WHERE user_id = ?
+               AND connection_status = \'live\'
+               AND last_seen_at IS NOT NULL
+               AND last_seen_at < (NOW(3) - INTERVAL ? SECOND)'
+        );
+        $stmt->execute([$userId, $staleSeconds]);
+        $rows = array_map([$this, 'map'], $stmt->fetchAll());
+        if ($rows === []) {
+            return [];
+        }
+
+        $ids = array_column($rows, 'id');
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $params = array_merge([$userId], $ids);
+        $this->db()->prepare(
+            "UPDATE trading_accounts SET connection_status = 'disconnected'
+             WHERE user_id = ? AND id IN ($placeholders)"
+        )->execute($params);
+
+        return $rows;
+    }
+
+    /**
+     * Connector heartbeats are not the only sync. Journal and history writes
+     * update book rows without setting last_seen_at, which left the desk on
+     * "awaiting data" after trades already existed.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
+     */
+    private function withSyncActivity(string $userId, array $rows): array
+    {
+        if ($rows === []) {
+            return [];
+        }
+
+        $stmt = $this->db()->prepare(
+            'SELECT account_id, MAX(seen_at) AS seen_at FROM (
+                SELECT account_id, MAX(updated_at) AS seen_at
+                  FROM trades WHERE user_id = ? GROUP BY account_id
+                UNION ALL
+                SELECT account_id, MAX(updated_at) AS seen_at
+                  FROM positions WHERE user_id = ? GROUP BY account_id
+                UNION ALL
+                SELECT account_id, MAX(updated_at) AS seen_at
+                  FROM pending_orders WHERE user_id = ? GROUP BY account_id
+                UNION ALL
+                SELECT account_id, MAX(last_used_at) AS seen_at
+                  FROM connector_tokens
+                 WHERE user_id = ? AND account_id IS NOT NULL AND last_used_at IS NOT NULL
+                 GROUP BY account_id
+            ) activity
+            GROUP BY account_id'
+        );
+        $stmt->execute([$userId, $userId, $userId, $userId]);
+        $byAccount = [];
+        foreach ($stmt->fetchAll() as $activity) {
+            if (!isset($activity['account_id'], $activity['seen_at'])) {
+                continue;
+            }
+            $byAccount[(string) $activity['account_id']] = (string) $activity['seen_at'];
+        }
+
+        foreach ($rows as &$row) {
+            $id = (string) $row['id'];
+            $heartbeat = isset($row['last_seen_at']) && $row['last_seen_at'] !== ''
+                ? (string) $row['last_seen_at']
+                : null;
+            $row['last_seen_at'] = $this->laterTimestamp($heartbeat, $byAccount[$id] ?? null);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function laterTimestamp(?string $left, ?string $right): ?string
+    {
+        if ($left === null || $left === '') {
+            return ($right === null || $right === '') ? null : $right;
+        }
+        if ($right === null || $right === '') {
+            return $left;
+        }
+
+        return strcmp($left, $right) >= 0 ? $left : $right;
     }
 
     private function map(array $row): array

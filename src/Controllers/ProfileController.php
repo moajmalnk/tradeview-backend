@@ -27,7 +27,20 @@ final class ProfileController
 
     public function update(Request $request): void
     {
-        $profile = $this->profiles->update($request->user['id'], $request->body);
+        $body = $request->body;
+        if (array_key_exists('full_name', $body)) {
+            $name = trim((string) ($body['full_name'] ?? ''));
+            if ($name === '') {
+                Response::error('VALIDATION_ERROR', 'Name is required.', 422, [
+                    'full_name' => 'Name is required.',
+                ]);
+
+                return;
+            }
+            $body['full_name'] = $name;
+        }
+
+        $profile = $this->profiles->update($request->user['id'], $body);
         Response::data($profile);
     }
 }

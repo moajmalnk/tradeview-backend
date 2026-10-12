@@ -8,14 +8,40 @@ use App\Support\Uuid;
 
 final class NotificationRepository extends BaseRepository
 {
-    public function list(string $userId, int $limit, int $offset): array
+    public function list(string $userId, int $limit, int $offset, ?string $unread = null): array
     {
-        $stmt = $this->db()->prepare(
-            'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
-        );
-        $stmt->execute([$userId, $limit, $offset]);
+        $sql = 'SELECT * FROM notifications WHERE user_id = ?';
+        $params = [$userId];
+        if ($unread === '1' || $unread === 'true') {
+            $sql .= ' AND read_at IS NULL';
+        } elseif ($unread === '0' || $unread === 'false') {
+            $sql .= ' AND read_at IS NOT NULL';
+        }
+        $sql .= ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        $params[] = $limit;
+        $params[] = $offset;
+        $stmt = $this->db()->prepare($sql);
+        $stmt->execute($params);
 
         return $stmt->fetchAll();
+    }
+
+    public function countUnread(string $userId): int
+    {
+        $stmt = $this->db()->prepare(
+            'SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read_at IS NULL'
+        );
+        $stmt->execute([$userId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    public function countAll(string $userId): int
+    {
+        $stmt = $this->db()->prepare('SELECT COUNT(*) FROM notifications WHERE user_id = ?');
+        $stmt->execute([$userId]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     public function markRead(string $userId, string $id): ?array
@@ -63,5 +89,24 @@ final class NotificationRepository extends BaseRepository
         $find->execute([$id]);
 
         return $find->fetch();
+    }
+
+    /** First-run desk tips so an empty inbox is never a dead end. */
+    public function ensureWelcome(string $userId): void
+    {
+        if ($this->countAll($userId) > 0) {
+            return;
+        }
+
+        $this->create($userId, [
+            'type' => 'CONNECTION_RESTORED',
+            'title' => 'Welcome to TradeView Desk',
+            'message' => 'Your monitoring workspace is live. Add an account or connector to start receiving trade and risk alerts.',
+        ]);
+        $this->create($userId, [
+            'type' => 'DRAWDOWN_WARNING',
+            'title' => 'Risk alerts are informational',
+            'message' => 'Drawdown and concentration warnings never close positions automatically. Review them on the Risk page.',
+        ]);
     }
 }

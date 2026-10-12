@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Http\Request;
 use App\Http\Response;
 use App\Repositories\AccountRepository;
+use App\Repositories\NotificationRepository;
 use App\Repositories\TradeRepository;
 use App\Support\Uuid;
 use App\Support\Validator;
@@ -16,6 +17,7 @@ final class TradesController
     public function __construct(
         private TradeRepository $trades = new TradeRepository(),
         private AccountRepository $accounts = new AccountRepository(),
+        private NotificationRepository $notifications = new NotificationRepository(),
     ) {
     }
 
@@ -58,6 +60,12 @@ final class TradesController
 
             return;
         }
+        $timeError = $this->timeError($request->body);
+        if ($timeError) {
+            Response::error('VALIDATION_ERROR', $timeError, 422);
+
+            return;
+        }
 
         $payload = $request->body;
         $payload['ticket'] = $payload['ticket'] ?? ('MAN-' . substr(Uuid::v4(), 0, 8));
@@ -66,17 +74,69 @@ final class TradesController
         $payload['metadata'] = $meta;
 
         $row = $this->trades->create($request->user['id'], $payload);
+        $dir = strtoupper((string) $row['direction']);
+        $vol = $row['volume'];
+        $symbol = (string) $row['symbol'];
+        $status = (string) ($row['status'] ?? 'closed');
+        $profit = (float) ($row['profit'] ?? 0);
+
+        if ($status === 'open') {
+            $this->notifications->create($request->user['id'], [
+                'account_id' => $row['account_id'],
+                'type' => 'TRADE_OPENED',
+                'title' => 'Position opened',
+                'message' => "{$symbol} {$dir} {$vol} logged as open.",
+            ]);
+        } else {
+            $pnl = ($profit >= 0 ? '+' : '') . number_format($profit, 2);
+            $this->notifications->create($request->user['id'], [
+                'account_id' => $row['account_id'],
+                'type' => 'TRADE_CLOSED',
+                'title' => 'Trade closed',
+                'message' => "{$symbol} {$dir} {$vol} closed at {$pnl}.",
+            ]);
+        }
+
         Response::data($row, 201);
     }
 
     public function update(Request $request): void
     {
+        $before = $this->trades->find($request->user['id'], $request->params['id']);
+        if (!$before) {
+            Response::error('NOT_FOUND', 'Trade not found.', 404);
+
+            return;
+        }
+        $timeError = $this->timeError($request->body);
+        if ($timeError) {
+            Response::error('VALIDATION_ERROR', $timeError, 422);
+
+            return;
+        }
         $row = $this->trades->update($request->user['id'], $request->params['id'], $request->body);
         if (!$row) {
             Response::error('NOT_FOUND', 'Trade not found.', 404);
 
             return;
         }
+
+        $prev = (string) ($before['status'] ?? '');
+        $next = (string) ($row['status'] ?? '');
+        if ($prev !== 'closed' && $next === 'closed') {
+            $dir = strtoupper((string) $row['direction']);
+            $vol = $row['volume'];
+            $symbol = (string) $row['symbol'];
+            $profit = (float) ($row['profit'] ?? 0);
+            $pnl = ($profit >= 0 ? '+' : '') . number_format($profit, 2);
+            $this->notifications->create($request->user['id'], [
+                'account_id' => $row['account_id'],
+                'type' => 'TRADE_CLOSED',
+                'title' => 'Trade closed',
+                'message' => "{$symbol} {$dir} {$vol} closed at {$pnl}.",
+            ]);
+        }
+
         Response::data($row);
     }
 
@@ -88,5 +148,72 @@ final class TradesController
             return;
         }
         Response::data(['ok' => true]);
+    }
+
+    /** @param array<string, mixed> $body */
+    private function timeError(array $body): ?string
+    {
+        $now = new \DateTimeImmutable('now');
+        $limit = $now->modify('+2 minutes');
+        $open = null;
+        if ($this->hasInstant($body, 'open_time')) {
+            $open = $this->parseInstant($body['open_time']);
+            if (!$open) {
+                return 'Opened date is invalid.';
+            }
+            if ($open > $limit) {
+                return "Opened time can't be in the future.";
+            }
+        }
+
+        $status = strtolower((string) ($body['status'] ?? ''));
+        $closeProvided = array_key_exists('close_time', $body);
+        $hasClose = $this->hasInstant($body, 'close_time');
+        if ($status === 'closed' && $closeProvided && !$hasClose) {
+            return 'Enter a valid closed date.';
+        }
+        if ($hasClose) {
+            $close = $this->parseInstant($body['close_time']);
+            if (!$close) {
+                return 'Enter a valid closed date.';
+            }
+            if ($open && $close < $open) {
+                return 'Closed date must be on or after the Opened date.';
+            }
+            if ($close > $limit) {
+                return "Closed time can't be in the future.";
+            }
+        }
+
+        return null;
+    }
+
+    /** @param array<string, mixed> $body */
+    private function hasInstant(array $body, string $key): bool
+    {
+        if (!array_key_exists($key, $body) || $body[$key] === null) {
+            return false;
+        }
+
+        return trim((string) $body[$key]) !== '';
+    }
+
+    private function parseInstant(mixed $value): ?\DateTimeImmutable
+    {
+        if (!is_string($value) && !is_numeric($value)) {
+            return null;
+        }
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2} \d/', $raw) === 1) {
+            $raw = str_replace(' ', 'T', $raw);
+        }
+        try {
+            return new \DateTimeImmutable($raw);
+        } catch (\Exception) {
+            return null;
+        }
     }
 }

@@ -38,7 +38,7 @@ final class UserRepository extends BaseRepository
             $profile = $pdo->prepare(
                 'INSERT INTO profiles (id, full_name, email, timezone, demo_mode) VALUES (?, ?, ?, ?, 1)'
             );
-            $profile->execute([$id, $fullName, strtolower($email), 'UTC']);
+            $profile->execute([$id, $fullName, strtolower($email), 'Asia/Kolkata']);
 
             $pdo->commit();
         } catch (\Throwable $e) {

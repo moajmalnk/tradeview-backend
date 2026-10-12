@@ -54,6 +54,26 @@ final class ConnectorTokenRepository extends BaseRepository
         return $stmt->rowCount() > 0;
     }
 
+    public function deleteInactive(string $userId, string $id): bool
+    {
+        $stmt = $this->db()->prepare(
+            'DELETE FROM connector_tokens WHERE id = ? AND user_id = ? AND status <> \'active\''
+        );
+        $stmt->execute([$id, $userId]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    public function deleteAllInactive(string $userId): int
+    {
+        $stmt = $this->db()->prepare(
+            'DELETE FROM connector_tokens WHERE user_id = ? AND status <> \'active\''
+        );
+        $stmt->execute([$userId]);
+
+        return $stmt->rowCount();
+    }
+
     public function findActiveByPlainToken(string $plain): ?array
     {
         $hash = TokenHasher::sha256($plain);

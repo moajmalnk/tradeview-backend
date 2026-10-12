@@ -6,17 +6,26 @@ namespace App\Controllers;
 
 use App\Http\Request;
 use App\Http\Response;
+use App\Repositories\PendingOrderRepository;
 use App\Repositories\PositionRepository;
 
 final class PositionsController
 {
-    public function __construct(private PositionRepository $positions = new PositionRepository())
-    {
+    public function __construct(
+        private PositionRepository $positions = new PositionRepository(),
+        private PendingOrderRepository $orders = new PendingOrderRepository(),
+    ) {
     }
 
     public function index(Request $request): void
     {
         $accountId = isset($request->query['account_id']) ? (string) $request->query['account_id'] : null;
         Response::data($this->positions->listOpen($request->user['id'], $accountId));
+    }
+
+    public function orders(Request $request): void
+    {
+        $accountId = isset($request->query['account_id']) ? (string) $request->query['account_id'] : null;
+        Response::data($this->orders->listPending($request->user['id'], $accountId));
     }
 }

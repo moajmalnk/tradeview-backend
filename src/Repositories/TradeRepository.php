@@ -103,7 +103,8 @@ final class TradeRepository extends BaseRepository
         return $stmt->rowCount() > 0;
     }
 
-    public function upsert(string $userId, string $accountId, array $data): void
+    /** @return array{is_new: bool, row: array<string, mixed>|null} */
+    public function upsert(string $userId, string $accountId, array $data): array
     {
         $existing = $this->db()->prepare(
             'SELECT id FROM trades WHERE account_id = ? AND ticket = ? LIMIT 1'
@@ -112,11 +113,34 @@ final class TradeRepository extends BaseRepository
         $row = $existing->fetch();
 
         if ($row) {
-            $this->update($userId, $row['id'], $data);
-        } else {
-            $data['account_id'] = $accountId;
-            $this->create($userId, $data);
+            return [
+                'is_new' => false,
+                'row' => $this->update($userId, $row['id'], $data),
+            ];
         }
+
+        $data['account_id'] = $accountId;
+
+        return [
+            'is_new' => true,
+            'row' => $this->create($userId, $data),
+        ];
+    }
+
+    /** Net closed P/L (profit + commission + swap) for a user, optional account filter. */
+    public function netClosedPnl(string $userId, ?string $accountId = null): float
+    {
+        $sql = 'SELECT COALESCE(SUM(profit + commission + swap), 0) FROM trades
+                WHERE user_id = ? AND status = \'closed\'';
+        $params = [$userId];
+        if ($accountId) {
+            $sql .= ' AND account_id = ?';
+            $params[] = $accountId;
+        }
+        $stmt = $this->db()->prepare($sql);
+        $stmt->execute($params);
+
+        return round((float) $stmt->fetchColumn(), 2);
     }
 
     private function map(array $row): array

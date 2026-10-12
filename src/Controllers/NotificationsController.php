@@ -16,9 +16,19 @@ final class NotificationsController
 
     public function index(Request $request): void
     {
+        $userId = $request->user['id'];
+        $this->notifications->ensureWelcome($userId);
+
         $limit = $request->intQuery('limit', 50, 1, 100);
         $offset = $request->intQuery('offset', 0, 0);
-        Response::data($this->notifications->list($request->user['id'], $limit, $offset));
+        $unread = isset($request->query['unread']) ? (string) $request->query['unread'] : null;
+
+        $rows = $this->notifications->list($userId, $limit, $offset, $unread);
+        Response::data([
+            'items' => $rows,
+            'unread_count' => $this->notifications->countUnread($userId),
+            'total' => $this->notifications->countAll($userId),
+        ]);
     }
 
     public function markRead(Request $request): void
@@ -35,6 +45,9 @@ final class NotificationsController
     public function markAllRead(Request $request): void
     {
         $count = $this->notifications->markAllRead($request->user['id']);
-        Response::data(['updated' => $count]);
+        Response::data([
+            'updated' => $count,
+            'unread_count' => 0,
+        ]);
     }
 }

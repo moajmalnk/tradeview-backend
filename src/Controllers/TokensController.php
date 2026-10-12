@@ -52,4 +52,20 @@ final class TokensController
         }
         Response::data(['ok' => true]);
     }
+
+    /** Active tokens must be revoked first so a live EA is never cut off by a delete. */
+    public function purge(Request $request): void
+    {
+        if (!$this->tokens->deleteInactive($request->user['id'], $request->params['id'])) {
+            Response::error('NOT_FOUND', 'Token not found or still active.', 404);
+
+            return;
+        }
+        Response::data(['ok' => true]);
+    }
+
+    public function purgeInactive(Request $request): void
+    {
+        Response::data(['deleted' => $this->tokens->deleteAllInactive($request->user['id'])]);
+    }
 }

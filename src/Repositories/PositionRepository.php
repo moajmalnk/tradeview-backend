@@ -23,6 +23,20 @@ final class PositionRepository extends BaseRepository
         return array_map([$this, 'map'], $stmt->fetchAll());
     }
 
+    public function unrealizedPnl(string $userId, ?string $accountId = null): float
+    {
+        $sql = 'SELECT COALESCE(SUM(profit), 0) FROM positions WHERE user_id = ? AND status = \'open\'';
+        $params = [$userId];
+        if ($accountId) {
+            $sql .= ' AND account_id = ?';
+            $params[] = $accountId;
+        }
+        $stmt = $this->db()->prepare($sql);
+        $stmt->execute($params);
+
+        return round((float) $stmt->fetchColumn(), 2);
+    }
+
     public function upsert(string $userId, string $accountId, array $data): void
     {
         $existing = $this->db()->prepare(
@@ -85,24 +99,53 @@ final class PositionRepository extends BaseRepository
         }
     }
 
-    public function closeMissing(string $userId, string $accountId, array $activeTickets): void
+    /** @return list<array<string, mixed>> Positions that were open and are now closed. */
+    public function closeMissing(string $userId, string $accountId, array $activeTickets): array
     {
+        $closing = $this->selectMissingOpen($userId, $accountId, $activeTickets);
+        if ($closing === []) {
+            return [];
+        }
+
         if ($activeTickets === []) {
             $stmt = $this->db()->prepare(
                 'UPDATE positions SET status = \'closed\' WHERE user_id = ? AND account_id = ? AND status = \'open\''
             );
             $stmt->execute([$userId, $accountId]);
+        } else {
+            $placeholders = implode(',', array_fill(0, count($activeTickets), '?'));
+            $params = array_merge([$userId, $accountId], $activeTickets);
+            $stmt = $this->db()->prepare(
+                "UPDATE positions SET status = 'closed'
+                 WHERE user_id = ? AND account_id = ? AND status = 'open' AND ticket NOT IN ($placeholders)"
+            );
+            $stmt->execute($params);
+        }
 
-            return;
+        return $closing;
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function selectMissingOpen(string $userId, string $accountId, array $activeTickets): array
+    {
+        if ($activeTickets === []) {
+            $stmt = $this->db()->prepare(
+                'SELECT * FROM positions WHERE user_id = ? AND account_id = ? AND status = \'open\''
+            );
+            $stmt->execute([$userId, $accountId]);
+
+            return array_map([$this, 'map'], $stmt->fetchAll());
         }
 
         $placeholders = implode(',', array_fill(0, count($activeTickets), '?'));
         $params = array_merge([$userId, $accountId], $activeTickets);
         $stmt = $this->db()->prepare(
-            "UPDATE positions SET status = 'closed'
+            "SELECT * FROM positions
              WHERE user_id = ? AND account_id = ? AND status = 'open' AND ticket NOT IN ($placeholders)"
         );
         $stmt->execute($params);
+
+        return array_map([$this, 'map'], $stmt->fetchAll());
     }
 
     private function map(array $row): array

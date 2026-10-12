@@ -6,6 +6,7 @@ namespace App;
 
 use App\Controllers\AccountsController;
 use App\Controllers\AuthController;
+use App\Controllers\CapitalController;
 use App\Controllers\ConnectorController;
 use App\Controllers\NotificationsController;
 use App\Controllers\PositionsController;
@@ -14,6 +15,7 @@ use App\Controllers\ShareController;
 use App\Controllers\SignalsController;
 use App\Controllers\TokensController;
 use App\Controllers\TradesController;
+use App\Controllers\UploadController;
 use App\Http\Request;
 use App\Http\Response;
 use App\Repositories\UserRepository;
@@ -33,6 +35,16 @@ final class Routes
         $tokens = new TokensController();
         $share = new ShareController();
         $connector = new ConnectorController();
+        $capital = new CapitalController();
+        $uploads = new UploadController();
+
+        $router->get('/v1', static function (): void {
+            Response::data([
+                'ok' => true,
+                'service' => 'tradeview-api',
+                'message' => 'TradeView API is running.',
+            ]);
+        });
 
         $router->get('/v1/health', static function (): void {
             Response::data([
@@ -72,6 +84,7 @@ final class Routes
         $router->delete('/v1/accounts/{id}', [$accounts, 'destroy'], true);
 
         $router->get('/v1/positions', [$positions, 'index'], true);
+        $router->get('/v1/pending-orders', [$positions, 'orders'], true);
 
         $router->get('/v1/trades', [$trades, 'index'], true);
         $router->post('/v1/trades', [$trades, 'store'], true);
@@ -89,12 +102,23 @@ final class Routes
 
         $router->get('/v1/connector-tokens', [$tokens, 'index'], true);
         $router->post('/v1/connector-tokens', [$tokens, 'store'], true);
+        $router->delete('/v1/connector-tokens/inactive', [$tokens, 'purgeInactive'], true);
         $router->delete('/v1/connector-tokens/{id}', [$tokens, 'destroy'], true);
+        $router->delete('/v1/connector-tokens/{id}/purge', [$tokens, 'purge'], true);
 
         $router->get('/v1/share-links', [$share, 'index'], true);
         $router->post('/v1/share-links', [$share, 'store'], true);
         $router->delete('/v1/share-links/{id}', [$share, 'destroy'], true);
         $router->get('/v1/share/{token}', [$share, 'resolve']);
+
+        $router->get('/v1/capital-movements', [$capital, 'index'], true);
+        $router->post('/v1/capital-movements', [$capital, 'store'], true);
+        $router->get('/v1/capital-movements/{id}', [$capital, 'show'], true);
+        $router->patch('/v1/capital-movements/{id}', [$capital, 'update'], true);
+        $router->delete('/v1/capital-movements/{id}', [$capital, 'destroy'], true);
+        $router->get('/v1/capital-summary', [$capital, 'summary'], true);
+
+        $router->post('/v1/uploads', [$uploads, 'store'], true);
 
         $router->post('/v1/connector/sync', [$connector, 'sync']);
     }

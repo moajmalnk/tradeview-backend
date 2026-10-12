@@ -101,6 +101,7 @@ final class ShareController
                 $out['free_margin'] = $account['free_margin'];
                 $out['margin_level'] = $account['margin_level'];
             }
+            $out['last_seen_at'] = $account['last_seen_at'] ?? null;
 
             return $out;
         }, $allAccounts);

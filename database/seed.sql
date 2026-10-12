@@ -16,7 +16,7 @@ VALUES (
   'a0000000-0000-4000-8000-000000000001',
   'Demo Trader',
   'trader@tradeview.local',
-  'UTC',
+  'Asia/Kolkata',
   1
 )
-ON DUPLICATE KEY UPDATE full_name = VALUES(full_name);
+ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), timezone = VALUES(timezone);

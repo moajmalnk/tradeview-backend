@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Http\Request;
 use App\Http\Response;
 use App\Repositories\AuditRepository;
+use App\Repositories\NotificationRepository;
 use App\Repositories\ProfileRepository;
 use App\Repositories\UserRepository;
 use App\Services\JwtService;
@@ -19,18 +20,20 @@ final class AuthController
         private ProfileRepository $profiles = new ProfileRepository(),
         private JwtService $jwt = new JwtService(),
         private AuditRepository $audit = new AuditRepository(),
+        private NotificationRepository $notifications = new NotificationRepository(),
     ) {
     }
 
     public function register(Request $request): void
     {
         $v = Validator::validate($request->body, [
-            'email' => 'required|email',
+            'email' => 'required|email_strict',
             'password' => 'required|string|min:4',
             'full_name' => 'string',
         ]);
         if (!$v['ok']) {
-            Response::error('VALIDATION_ERROR', 'Invalid input.', 422, $v['errors']);
+            $message = isset($v['errors']['email']) ? 'invalid email id' : 'Invalid input.';
+            Response::error('VALIDATION_ERROR', $message, 422, $v['errors']);
 
             return;
         }
@@ -47,6 +50,7 @@ final class AuthController
             isset($request->body['full_name']) ? (string) $request->body['full_name'] : null,
         );
         $this->audit->log($user['id'], 'USER_REGISTERED', $user['email']);
+        $this->notifications->ensureWelcome($user['id']);
         $token = $this->jwt->issue($user['id'], $user['email']);
         $profile = $this->profiles->find($user['id']);
 

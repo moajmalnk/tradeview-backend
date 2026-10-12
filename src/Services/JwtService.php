@@ -10,9 +10,12 @@ use Throwable;
 
 final class JwtService
 {
+    private const DAY_SECONDS = 86400;
+
     public function issue(string $userId, string $email): string
     {
-        $ttl = (int) ($_ENV['JWT_TTL'] ?? 604800);
+        $configured = (int) ($_ENV['JWT_TTL'] ?? self::DAY_SECONDS);
+        $ttl = $configured > 0 ? min($configured, self::DAY_SECONDS) : self::DAY_SECONDS;
         $now = time();
         $payload = [
             'sub' => $userId,
@@ -31,6 +34,11 @@ final class JwtService
             $decoded = JWT::decode($token, new Key($this->secret(), 'HS256'));
             $data = (array) $decoded;
             if (!isset($data['sub'], $data['email'])) {
+                return null;
+            }
+
+            $issuedAt = isset($data['iat']) ? (int) $data['iat'] : 0;
+            if ($issuedAt <= 0 || time() >= $issuedAt + self::DAY_SECONDS) {
                 return null;
             }
 

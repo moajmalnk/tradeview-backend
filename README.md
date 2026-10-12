@@ -53,7 +53,7 @@ php -S localhost:8081 -t public
 
 | | |
 |---|---|
-| Email | `trader@tradeview.local` |
+| Email | `trader@tradeview` |
 | Password | `demo` |
 
 (Requires `database/seed.sql` imported.)
@@ -73,9 +73,16 @@ If login returns 500, pull the latest backend and ensure `.env` has a real `JWT_
 | GET/PATCH/DELETE | `/v1/trades/{id}` | yes |
 | GET/POST | `/v1/signals` | yes |
 | GET | `/v1/notifications` | yes |
-| GET/POST/DELETE | `/v1/connector-tokens` | yes |
+| GET/POST | `/v1/connector-tokens` | yes |
+| DELETE | `/v1/connector-tokens/{id}` (revoke) | yes |
+| DELETE | `/v1/connector-tokens/{id}/purge` (delete revoked/expired) | yes |
+| DELETE | `/v1/connector-tokens/inactive` (delete all revoked/expired) | yes |
 | GET/POST/DELETE | `/v1/share-links` | yes |
 | GET | `/v1/share/{token}` | public |
+| GET/POST | `/v1/capital-movements` | yes |
+| GET/PATCH/DELETE | `/v1/capital-movements/{id}` | yes |
+| GET | `/v1/capital-summary` | yes |
+| POST | `/v1/uploads` | yes (multipart `file` — JPEG/PNG/WebP/GIF ≤5MB) |
 | POST | `/v1/connector/sync` | connector token |
 
 Responses: `{ "data": ... }` or `{ "error": { "code", "message" } }`.
@@ -90,9 +97,16 @@ Content-Type: application/json
 {
   "account": { "label": "MT5 Live", "balance": 10000, "equity": 10050 },
   "positions": [{ "ticket": "1", "symbol": "EURUSD", "direction": "buy", "volume": 0.1, "entry_price": 1.08 }],
+  "orders": [{ "ticket": "2", "symbol": "EURUSD", "direction": "sell", "volume": 0.7, "requested_price": 1.15774 }],
   "trades": []
 }
 ```
+
+MT5 Expert Advisor: see [`connectors/mt5/`](../connectors/mt5/).
+
+## Capital / payments
+
+Log UPI/bank transfers to the trader, then call `GET /v1/capital-summary` for funded vs trading P/L and ROI.
 
 ## Security
 
