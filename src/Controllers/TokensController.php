@@ -43,14 +43,28 @@ final class TokensController
         ], 201);
     }
 
+    /**
+     * Active → revoke (EA stops; row kept). Already revoked/expired → hard delete.
+     * Keeps delete working on hosts that only expose DELETE /connector-tokens/{id}.
+     */
     public function destroy(Request $request): void
     {
-        if (!$this->tokens->revoke($request->user['id'], $request->params['id'])) {
-            Response::error('NOT_FOUND', 'Token not found or already revoked.', 404);
+        $userId = $request->user['id'];
+        $id = $request->params['id'];
+
+        if ($this->tokens->revoke($userId, $id)) {
+            Response::data(['ok' => true]);
 
             return;
         }
-        Response::data(['ok' => true]);
+
+        if ($this->tokens->deleteInactive($userId, $id)) {
+            Response::data(['ok' => true]);
+
+            return;
+        }
+
+        Response::error('NOT_FOUND', 'Token not found.', 404);
     }
 
     /** Active tokens must be revoked first so a live EA is never cut off by a delete. */
